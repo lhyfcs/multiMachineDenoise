@@ -16,11 +16,10 @@ def dncnn(input, is_training=True, output_channels=1):
 
 
 class denoiser(object):
-    def __init__(self, input_c_dim=3, sigma=25, batch_size=128, num_workers = 1):
-        #self.sess = sess
+    def __init__(self, sess, input_c_dim=3, sigma=25, batch_size=128):
+        self.sess = sess
         self.input_c_dim = input_c_dim
         self.sigma = sigma
-        self.global_step = tf.Variable(0, name='global_step', trainable=False)
         # build model
         self.Y_ = tf.placeholder(tf.float32, [None, None, None, self.input_c_dim],
                                  name='clean_image')
@@ -34,14 +33,9 @@ class denoiser(object):
         optimizer = tf.train.AdamOptimizer(self.lr, name='AdamOptimizer')
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
-            self.train_op = optimizer.minimize(self.loss, global_step=self.global_step)
-        
-        # opt = tf.train.SyncReplicasOptimizer(
-        #     optimizer, use_locking=False,
-        #     replicas_to_aggregate=0,
-        #     total_num_replicas=num_workers,
-        #     name="mnist_sync_replicas")        
-        #self.sess.run(init)
+            self.train_op = optimizer.minimize(self.loss)
+        init = tf.global_variables_initializer()
+        self.sess.run(init)
         print("[*] Initialize model successfully...")
 
     def evaluate(self, iter_num, test_data, sample_dir, summary_merged, summary_writer):
@@ -74,81 +68,48 @@ class denoiser(object):
                                                               feed_dict={self.Y_: data, self.is_training: False})
         return output_clean_image, noisy_image, psnr
 
-    def train(self, server, data, eval_data, batch_size, ckpt_dir, epoch, lr, sample_dir, task_index=0, eval_every_epoch=2):
-        init = tf.global_variables_initializer()
+    def train(self, data, eval_data, batch_size, ckpt_dir, epoch, lr, sample_dir, eval_every_epoch=2):
         # assert data range is between 0 and 1
         numBatch = int(data.shape[0] / batch_size)
         # load pretrained model
+        load_model_status, global_step = self.load(ckpt_dir)
+        if load_model_status:
+            iter_num = global_step
+            start_epoch = global_step // numBatch
+            start_step = global_step % numBatch
+            print("[*] Model restore success!")
+        else:
+            iter_num = 0
+            start_epoch = 0
+            start_step = 0
+            print("[*] Not find pretrained model!")
         # make summary
-        
-        checkpoint_dir = ckpt_dir
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(checkpoint_dir)
-        np.random.shuffle(data)
         tf.summary.scalar('loss', self.loss)
         tf.summary.scalar('lr', self.lr)
+        writer = tf.summary.FileWriter('./logs', self.sess.graph)
         merged = tf.summary.merge_all()
-        sv = tf.train.Supervisor(is_chief=(task_index == 0),
-            logdir="./checkpoint/", 
-            init_op=init,
-            summary_op=None,
-            global_step=self.global_step)
-        
+        summary_psnr = tf.summary.scalar('eva_psnr', self.eva_psnr)
+        print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, iter_num))
         start_time = time.time()
-        # self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
-        #               summary_writer=writer)  # eval_data value range is 0-255
-        #writer = tf.summary.FileWriter('./logs', self.sess.graph)
-        
-        with sv.managed_session(server.target) as sess:              
-            saver=sv.saver
-            load_model_status, global_step = self.load(saver,sess, ckpt_dir)
-            if load_model_status:
-                #iter_num = global_step
-                start_epoch = global_step // numBatch
-                #start_step = global_step % numBatch
-                print("[*] Model restore success!")
-            else:
-                #iter_num = 0
-                start_epoch = 0
-                #start_step = 0
-                print("[*] Not find pretrained model!")
-            print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, global_step))
-            step = 0
-            batch_id = 0
-            epo = 0
-            while not sv.should_stop() and step < epoch * numBatch:
+        self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
+                      summary_writer=writer)  # eval_data value range is 0-255
+        for epoch in range(start_epoch, epoch):
+            np.random.shuffle(data)
+            for batch_id in range(start_step, numBatch):
                 batch_images = data[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-                _, loss, step, summary = sess.run([self.train_op, self.loss, self.global_step, merged],
-                                                    feed_dict={self.Y_: batch_images, self.lr: lr[epo],
-                                                                self.is_training: True})
-                step += 1
-                if (step % 1000 == 0):
-                    sv.summary_computed(sess, summary,global_step=step)
-                    saver.save(sess,os.path.join(checkpoint_dir, 'DnCNN-tensorflow'),global_step=step)
-                print("Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
-                      % (step, numBatch, time.time() - start_time, loss))
-                if (step % numBatch == 0):
-                    np.random.shuffle(data)
-                
-                epo = step // numBatch
-                batch_id = step % numBatch
-        # for epoch in range(start_epoch, epoch):
-        #     np.random.shuffle(data)
-        #     for batch_id in range(start_step, numBatch):
-        #         batch_images = data[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-        #         # batch_images = batch_images.astype(np.float32) / 255.0 # normalize the data to 0-1
-        #         _, loss, summary = self.sess.run([self.train_op, self.loss, merged],
-        #                                          feed_dict={self.Y_: batch_images, self.lr: lr[epoch],
-        #                                                     self.is_training: True})
-        #         print("Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.6f"
-        #               % (epoch + 1, batch_id + 1, numBatch, time.time() - start_time, loss))
-        #         iter_num += 1
-        #         #writer.add_summary(summary, iter_num)
-        #     if np.mod(epoch + 1, eval_every_epoch) == 0:
-        #         # self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
-        #         #               summary_writer=writer)  # eval_data value range is 0-255
-        #         self.save(iter_num, ckpt_dir)
-        # print("[*] Finish training.")
+                # batch_images = batch_images.astype(np.float32) / 255.0 # normalize the data to 0-1
+                _, loss, summary = self.sess.run([self.train_op, self.loss, merged],
+                                                 feed_dict={self.Y_: batch_images, self.lr: lr[epoch],
+                                                            self.is_training: True})
+                print("Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.6f"
+                      % (epoch + 1, batch_id + 1, numBatch, time.time() - start_time, loss))
+                iter_num += 1
+                writer.add_summary(summary, iter_num)
+            if np.mod(epoch + 1, eval_every_epoch) == 0:
+                self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
+                              summary_writer=writer)  # eval_data value range is 0-255
+                self.save(iter_num, ckpt_dir)
+        print("[*] Finish training.")
 
     def save(self, iter_num, ckpt_dir, model_name='DnCNN-tensorflow'):
         saver = tf.train.Saver()
@@ -160,14 +121,14 @@ class denoiser(object):
                    os.path.join(checkpoint_dir, model_name),
                    global_step=iter_num)
 
-    def load(self, saver, sess, checkpoint_dir):
+    def load(self, checkpoint_dir):
         print("[*] Reading checkpoint...")
-        #saver = tf.train.Saver()
+        saver = tf.train.Saver()
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             full_path = tf.train.latest_checkpoint(checkpoint_dir)
             global_step = int(full_path.split('/')[-1].split('-')[-1])
-            saver.restore(sess, full_path)
+            saver.restore(self.sess, full_path)
             return True, global_step
         else:
             return False, 0

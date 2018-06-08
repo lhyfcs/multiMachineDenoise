@@ -11,7 +11,7 @@ from utils import *
 DATA_AUG_TIMES = 1  # transform a sample to a different sample for DATA_AUG_TIMES times
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--src_dir', dest='src_dir', default='./data/Train400', help='dir of data')
+parser.add_argument('--src_dir', dest='src_dir', default='./data/HDTrain', help='dir of data')
 parser.add_argument('--save_dir', dest='save_dir', default='./data', help='dir of patches')
 parser.add_argument('--patch_size', dest='pat_size', type=int, default=40, help='patch size')
 parser.add_argument('--stride', dest='stride', type=int, default=10, help='stride')
@@ -26,16 +26,16 @@ args = parser.parse_args()
 def generate_patches(isDebug=False):
     global DATA_AUG_TIMES
     count = 0
-    filepaths = glob.glob(args.src_dir + '/*.png')
+    filepaths = glob.glob(args.src_dir + '/*.jpg')
     if isDebug:
         filepaths = filepaths[:10]
-    print "number of training data %d" % len(filepaths)
+    print ("number of training data %d" % len(filepaths))
     
-    scales = [1, 0.9, 0.8, 0.7]
+    scales = [1, 0.85, 0.7]
     
     # calculate the number of patches
     for i in range(len(filepaths)):
-        img = Image.open(filepaths[i]).convert('L')  # convert RGB to gray
+        img = Image.open(filepaths[i])  # convert RGB to gray
         for s in range(len(scales)):
             newsize = (int(img.size[0] * scales[s]), int(img.size[1] * scales[s]))
             img_s = img.resize(newsize, resample=PIL.Image.BICUBIC)  # do not change the original img
@@ -49,8 +49,8 @@ def generate_patches(isDebug=False):
         numPatches = int((origin_patch_num / args.bat_size + 1) * args.bat_size)
     else:
         numPatches = origin_patch_num
-    print "total patches = %d , batch size = %d, total batches = %d" % \
-          (numPatches, args.bat_size, numPatches / args.bat_size)
+    print ("total patches = %d , batch size = %d, total batches = %d" % \
+          (numPatches, args.bat_size, numPatches / args.bat_size))
     
     # data matrix 4-D
     inputs = np.zeros((numPatches, args.pat_size, args.pat_size, 3), dtype="uint8")
@@ -81,7 +81,7 @@ def generate_patches(isDebug=False):
     if not os.path.exists(args.save_dir):
         os.mkdir(args.save_dir)
     np.save(os.path.join(args.save_dir, "img_clean_pats"), inputs)
-    print "size of inputs tensor = " + str(inputs.shape)
+    print ("size of inputs tensor = " + str(inputs.shape))
 
 
 if __name__ == '__main__':
