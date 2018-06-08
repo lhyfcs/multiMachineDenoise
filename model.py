@@ -98,7 +98,7 @@ class denoiser(object):
         # self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
         #               summary_writer=writer)  # eval_data value range is 0-255
         #writer = tf.summary.FileWriter('./logs', self.sess.graph)
-        
+        save_path = os.path.join(checkpoint_dir, 'DnCNN-tensorflow')
         with sv.managed_session(server.target) as sess:              
             saver=sv.saver
             load_model_status, global_step = self.load(saver,sess, ckpt_dir)
@@ -116,22 +116,27 @@ class denoiser(object):
             step = 0
             batch_id = 0
             epo = 0
+            count = 0
             while not sv.should_stop() and step < epoch * numBatch:
                 batch_images = data[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
                 _, loss, step, summary = sess.run([self.train_op, self.loss, self.global_step, merged],
                                                     feed_dict={self.Y_: batch_images, self.lr: lr[epo],
                                                                 self.is_training: True})
                 step += 1
-                if (step % 1000 == 0):
+                if (count % 1000 == 0 and task_index == 0):
                     sv.summary_computed(sess, summary,global_step=step)
-                    saver.save(sess,os.path.join(checkpoint_dir, 'DnCNN-tensorflow'),global_step=step)
+                    saver.save(sess,save_path,global_step=step)
                 print("Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
                       % (step, numBatch, time.time() - start_time, loss))
                 if (step % numBatch == 0):
                     np.random.shuffle(data)
-                
+                count += 1
                 epo = step // numBatch
                 batch_id = step % numBatch
+            if (task_index == 0):
+                sv.summary_computed(sess, summary,global_step=step)
+                saver.save(sess,save_path,global_step=step)
+            sv.stop()
         # for epoch in range(start_epoch, epoch):
         #     np.random.shuffle(data)
         #     for batch_id in range(start_step, numBatch):
