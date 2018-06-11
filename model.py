@@ -123,16 +123,17 @@ class denoiser(object):
                                                     feed_dict={self.Y_: batch_images, self.lr: lr[epo],
                                                                 self.is_training: True})
                 step += 1
+                epo = step // numBatch
+                batch_id = step % numBatch
                 if (count % 1000 == 0 and task_index == 0):
                     sv.summary_computed(sess, summary,global_step=step)
                     saver.save(sess,save_path,global_step=step)
-                print("Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
-                      % (step, numBatch, time.time() - start_time, loss))
+                print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
+                      % (epo, batch_id, numBatch, time.time() - start_time, loss))
                 if (step % numBatch == 0):
                     np.random.shuffle(data)
                 count += 1
-                epo = step // numBatch
-                batch_id = step % numBatch
+                
             if (task_index == 0):
                 sv.summary_computed(sess, summary,global_step=step)
                 saver.save(sess,save_path,global_step=step)

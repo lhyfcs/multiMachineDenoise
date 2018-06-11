@@ -22,7 +22,10 @@ Here is my training loss:
 ```
 $ python main.py --phase test
 ```
-
+## Run
+```
+for i in `cat machine.txt`;do echo $i;ssh  -i ./key.pem root@$i "cd /mnt/jinfan/tensorflow/multiMachineDenoise/ && python3 main.py --epoch=10 &";done
+```
 ## TODO
 - [x] Write code to support multi machine to learning
 - [x] Implement server to support restful API denoise

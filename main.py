@@ -27,9 +27,9 @@ flags.DEFINE_integer("replicas_to_aggregate", None,
                      "Number of replicas to aggregate before parameter update"
                      "is applied (For sync_replicas mode only; default: "
                      "num_workers)")
-flags.DEFINE_string("ps_hosts", "10.80.51.58:2222",
+flags.DEFINE_string("ps_hosts", "10.80.54.230:2222",
                     "Comma-separated list of hostname:port pairs")
-flags.DEFINE_string("worker_hosts", "10.80.51.49:2223,10.80.51.53:2224,10.80.51.52:2225,10.80.51.55:2226,10.80.51.48:2227",
+flags.DEFINE_string("worker_hosts", "10.80.51.58:2228,10.80.51.60:2229,10.80.51.49:2223,10.80.51.53:2224,10.80.51.52:2225,10.80.51.55:2226,10.80.51.48:2227",
                     "Comma-separated list of hostname:port pairs")
 flags.DEFINE_string("job_name", 'ps', "job name: worker or ps")
 flags.DEFINE_integer("task_index", 0,
