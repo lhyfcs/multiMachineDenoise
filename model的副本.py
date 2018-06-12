@@ -85,12 +85,22 @@ class denoiser(object):
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
         np.random.shuffle(data)
+        tf.summary.scalar('loss', self.loss)
+        tf.summary.scalar('lr', self.lr)
+        merged = tf.summary.merge_all()
+        sv = tf.train.Supervisor(is_chief=(task_index == 0),
+            logdir="./checkpoint/", 
+            init_op=init,
+            summary_op=None,
+            global_step=self.global_step)
+        
         start_time = time.time()
-        saver = tf.train.Saver()
-        with tf.train.MonitoredTrainingSession(master=server.target, is_chief=(task_index == 0),
-            checkpoint_dir=checkpoint_dir,
-            save_checkpoint_steps=1000,
-            save_summaries_steps=1000) as sess:
+        # self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
+        #               summary_writer=writer)  # eval_data value range is 0-255
+        #writer = tf.summary.FileWriter('./logs', self.sess.graph)
+        save_path = os.path.join(checkpoint_dir, 'DnCNN-tensorflow')
+        with sv.managed_session(server.target) as sess:              
+            saver=sv.saver
             load_model_status, global_step = self.load(saver,sess, ckpt_dir)
             if load_model_status:
                 #iter_num = global_step
@@ -107,20 +117,27 @@ class denoiser(object):
             batch_id = 0
             epo = 0
             count = 0
-            while not sess.should_stop() and step < epoch * numBatch:
+            while not sv.should_stop() and step < epoch * numBatch:
                 batch_images = data[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-                _, loss, step = sess.run([self.train_op, self.loss, self.global_step],
+                _, loss, step, summary = sess.run([self.train_op, self.loss, self.global_step, merged],
                                                     feed_dict={self.Y_: batch_images, self.lr: lr[epo],
                                                                 self.is_training: True})
                 step += 1
                 epo = step // numBatch
                 batch_id = step % numBatch
+                if (count % 1000 == 0 and task_index == 0):
+                    sv.summary_computed(sess, summary,global_step=step)
+                    saver.save(sess,save_path,global_step=step)
                 print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
                       % (epo, batch_id, numBatch, time.time() - start_time, loss))
                 if (step % numBatch == 0):
                     np.random.shuffle(data)
                 count += 1
                 
+            if (task_index == 0):
+                sv.summary_computed(sess, summary,global_step=step)
+                saver.save(sess,save_path,global_step=step)
+            sv.stop()
         # for epoch in range(start_epoch, epoch):
         #     np.random.shuffle(data)
         #     for batch_id in range(start_step, numBatch):
@@ -155,12 +172,9 @@ class denoiser(object):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             full_path = tf.train.latest_checkpoint(checkpoint_dir)
-            if full_path:
-                global_step = int(full_path.split('/')[-1].split('-')[-1])
-                saver.restore(sess, full_path)
-                return True, global_step
-            else:
-                return False, 0
+            global_step = int(full_path.split('/')[-1].split('-')[-1])
+            saver.restore(sess, full_path)
+            return True, global_step
         else:
             return False, 0
 

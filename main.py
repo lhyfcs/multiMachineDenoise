@@ -7,7 +7,7 @@ from model import denoiser
 from utils import *
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--epoch', dest='epoch', type=int, default=50, help='# of epoch')
+parser.add_argument('--epoch', dest='epoch', type=int, default=10, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=128, help='# images in batch')
 parser.add_argument('--lr', dest='lr', type=float, default=0.001, help='initial learning rate for adam')
 parser.add_argument('--use_gpu', dest='use_gpu', type=int, default=1, help='gpu flag, 1 for GPU and 0 for CPU')
@@ -18,6 +18,8 @@ parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help=
 parser.add_argument('--test_dir', dest='test_dir', default='./test', help='test sample are saved here')
 parser.add_argument('--eval_set', dest='eval_set', default='Set12', help='dataset for eval in training')
 parser.add_argument('--test_set', dest='test_set', default='BSD68', help='dataset for testing')
+parser.add_argument('--task_index', dest='task_index', default=0, help='set machine task index')
+parser.add_argument('--job_name', dest='job_name', default='ps', help='set machine job name')
 args = parser.parse_args()
 
 
@@ -31,8 +33,8 @@ flags.DEFINE_string("ps_hosts", "10.80.54.230:2222",
                     "Comma-separated list of hostname:port pairs")
 flags.DEFINE_string("worker_hosts", "10.80.51.58:2228,10.80.51.60:2229,10.80.51.49:2223,10.80.51.53:2224,10.80.51.52:2225,10.80.51.55:2226,10.80.51.48:2227",
                     "Comma-separated list of hostname:port pairs")
-flags.DEFINE_string("job_name", 'ps', "job name: worker or ps")
-flags.DEFINE_integer("task_index", 0,
+flags.DEFINE_string("job_name", args.job_name, "job name: worker or ps")
+flags.DEFINE_integer("task_index", args.task_index,
                      "Worker task index, should be >= 0. task_index=0 is "
                      "the master worker task the performs the variable "
                      "initialization ")
