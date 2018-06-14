@@ -7,11 +7,11 @@ from model import denoiser
 from utils import *
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--epoch', dest='epoch', type=int, default=10, help='# of epoch')
+parser.add_argument('--epoch', dest='epoch', type=int, default=7, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=128, help='# images in batch')
 parser.add_argument('--lr', dest='lr', type=float, default=0.001, help='initial learning rate for adam')
 parser.add_argument('--use_gpu', dest='use_gpu', type=int, default=1, help='gpu flag, 1 for GPU and 0 for CPU')
-parser.add_argument('--sigma', dest='sigma', type=int, default=25, help='noise level')
+parser.add_argument('--sigma', dest='sigma', type=int, default=2.5, help='noise level')
 parser.add_argument('--phase', dest='phase', default='train', help='train or test')
 parser.add_argument('--checkpoint_dir', dest='ckpt_dir', default='./checkpoint', help='models are saved here')
 parser.add_argument('--sample_dir', dest='sample_dir', default='./sample', help='sample are saved here')
@@ -76,7 +76,7 @@ def main(_):
     if args.phase == 'test':
         with tf.device("/cpu:0"):
             with tf.Session(config=config) as sess:
-                model = denoiser(sess, sigma=args.sigma)
+                model = denoiser(sess, sigma=args.sigma, isDenoise=True)
                 denoiser_test(model)
     elif args.phase == 'train':
         # distribution check
@@ -97,7 +97,7 @@ def main(_):
 
         if FLAGS.job_name == "ps":
             server.join() 
-        elif FLAGS.job_name == "worker": 
+        elif FLAGS.job_name == "worker":
             worker_device = "/job:worker/task:%d" % FLAGS.task_index
             with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
                 model = denoiser(sigma=args.sigma)

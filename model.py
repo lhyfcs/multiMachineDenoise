@@ -16,8 +16,9 @@ def dncnn(input, is_training=True, output_channels=1):
 
 
 class denoiser(object):
-    def __init__(self, input_c_dim=3, sigma=25, batch_size=128, num_workers = 1):
-        #self.sess = sess
+    def __init__(self, sees=None, input_c_dim=3, sigma=2.5, batch_size=128, num_workers = 1, isDenoise=False):
+        if sees != None:
+            self.sess = sees
         self.input_c_dim = input_c_dim
         self.sigma = sigma
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
@@ -35,13 +36,6 @@ class denoiser(object):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(self.loss, global_step=self.global_step)
-        
-        # opt = tf.train.SyncReplicasOptimizer(
-        #     optimizer, use_locking=False,
-        #     replicas_to_aggregate=0,
-        #     total_num_replicas=num_workers,
-        #     name="mnist_sync_replicas")        
-        #self.sess.run(init)
         print("[*] Initialize model successfully...")
 
     def evaluate(self, iter_num, test_data, sample_dir, summary_merged, summary_writer):
@@ -66,13 +60,12 @@ class denoiser(object):
             save_images(os.path.join(sample_dir, 'test%d_%d.png' % (idx + 1, iter_num)),
                         groundtruth, noisyimage, outputimage)
         avg_psnr = psnr_sum / len(test_data)
-
         print("--- Test ---- Average PSNR %.2f ---" % avg_psnr)
 
-    def denoise(self, data):
-        output_clean_image, noisy_image, psnr = self.sess.run([self.Y, self.X, self.eva_psnr],
+    def denoise(self, sess, data):
+        output_clean_image, psnr = sess.run([self.Y, self.eva_psnr],
                                                               feed_dict={self.Y_: data, self.is_training: False})
-        return output_clean_image, noisy_image, psnr
+        return output_clean_image, psnr
 
     def train(self, server, data, eval_data, batch_size, ckpt_dir, epoch, lr, sample_dir, task_index=0, eval_every_epoch=2):
         init = tf.global_variables_initializer()
@@ -86,23 +79,24 @@ class denoiser(object):
             os.makedirs(checkpoint_dir)
         np.random.shuffle(data)
         start_time = time.time()
-        saver = tf.train.Saver()
+        # this seesion will read save and restore data automatic from check point dir
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=(task_index == 0),
             checkpoint_dir=checkpoint_dir,
             save_checkpoint_steps=1000,
             save_summaries_steps=1000) as sess:
-            load_model_status, global_step = self.load(saver,sess, ckpt_dir)
-            if load_model_status:
-                #iter_num = global_step
-                start_epoch = global_step // numBatch
-                #start_step = global_step % numBatch
-                print("[*] Model restore success!")
-            else:
-                #iter_num = 0
-                start_epoch = 0
-                #start_step = 0
-                print("[*] Not find pretrained model!")
-            print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, global_step))
+            sess.run(init)
+            # load_model_status, global_step = self.load(sess, ckpt_dir)
+            # if load_model_status:
+            #     #iter_num = global_step
+            #     start_epoch = global_step // numBatch
+            #     #start_step = global_step % numBatch
+            #     print("[*] Model restore success!")
+            # else:
+            #     #iter_num = 0
+            #     start_epoch = 0
+            #     #start_step = 0
+            #     print("[*] Not find pretrained model!")
+            # print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, global_step))
             step = 0
             batch_id = 0
             epo = 0
@@ -120,24 +114,7 @@ class denoiser(object):
                 if (step % numBatch == 0):
                     np.random.shuffle(data)
                 count += 1
-                
-        # for epoch in range(start_epoch, epoch):
-        #     np.random.shuffle(data)
-        #     for batch_id in range(start_step, numBatch):
-        #         batch_images = data[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-        #         # batch_images = batch_images.astype(np.float32) / 255.0 # normalize the data to 0-1
-        #         _, loss, summary = self.sess.run([self.train_op, self.loss, merged],
-        #                                          feed_dict={self.Y_: batch_images, self.lr: lr[epoch],
-        #                                                     self.is_training: True})
-        #         print("Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.6f"
-        #               % (epoch + 1, batch_id + 1, numBatch, time.time() - start_time, loss))
-        #         iter_num += 1
-        #         #writer.add_summary(summary, iter_num)
-        #     if np.mod(epoch + 1, eval_every_epoch) == 0:
-        #         # self.evaluate(iter_num, eval_data, sample_dir=sample_dir, summary_merged=summary_psnr,
-        #         #               summary_writer=writer)  # eval_data value range is 0-255
-        #         self.save(iter_num, ckpt_dir)
-        # print("[*] Finish training.")
+            sess.stop()
 
     def save(self, iter_num, ckpt_dir, model_name='DnCNN-tensorflow'):
         saver = tf.train.Saver()
@@ -149,14 +126,14 @@ class denoiser(object):
                    os.path.join(checkpoint_dir, model_name),
                    global_step=iter_num)
 
-    def load(self, saver, sess, checkpoint_dir):
+    def load(self, sess, checkpoint_dir):
         print("[*] Reading checkpoint...")
-        #saver = tf.train.Saver()
+        saver = tf.train.Saver()
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             full_path = tf.train.latest_checkpoint(checkpoint_dir)
             if full_path:
-                global_step = int(full_path.split('/')[-1].split('-')[-1])
+                global_step = int(full_path.split('/')[-1].split('-')[-1].split('.')[0])
                 saver.restore(sess, full_path)
                 return True, global_step
             else:
@@ -169,23 +146,23 @@ class denoiser(object):
         # init variables
         tf.global_variables_initializer().run()
         assert len(test_files) != 0, 'No testing data!'
-        load_model_status, global_step = self.load(ckpt_dir)
+        load_model_status = self.load(self.sess, ckpt_dir)
         assert load_model_status == True, '[!] Load weights FAILED...'
         print(" [*] Load weights SUCCESS...")
         psnr_sum = 0
         print("[*] " + 'noise level: ' + str(self.sigma) + " start testing...")
         for idx in range(len(test_files)):
-            clean_image = load_images(test_files[idx]).astype(np.float32) / 255.0
-            output_clean_image, noisy_image = self.sess.run([self.Y, self.X],
-                                                            feed_dict={self.Y_: clean_image, self.is_training: False})
-            groundtruth = np.clip(255 * clean_image, 0, 255).astype('uint8')
-            noisyimage = np.clip(255 * noisy_image, 0, 255).astype('uint8')
+            nosie_image = load_images(test_files[idx]).astype(np.float32) / 255.0
+            start_time = time.time()
+            output_clean_image = self.sess.run([self.Y], feed_dict={self.Y_: nosie_image, self.is_training: False})
+            groundtruth = np.clip(255 * nosie_image, 0, 255).astype('uint8')
+            #noisyimage = np.clip(255 * noisy_image, 0, 255).astype('uint8')
             outputimage = np.clip(255 * output_clean_image, 0, 255).astype('uint8')
             # calculate PSNR
             psnr = cal_psnr(groundtruth, outputimage)
-            print("img%d PSNR: %.2f" % (idx, psnr))
+            print("img%d PSNR: %.2f-- time:4.4%f" % (idx, psnr, time.time() - start_time))
             psnr_sum += psnr
-            save_images(os.path.join(save_dir, 'noisy%d.png' % idx), noisyimage)            
-            save_images(os.path.join(save_dir, 'denoised%d.png' % idx), outputimage)
+            #save_images(os.path.join(save_dir, 'noisy%d.png' % idx), noisyimage)            
+            save_images(os.path.join(save_dir, 'denoised%d.jpg' % idx), outputimage)
         avg_psnr = psnr_sum / len(test_files)
         print("--- Average PSNR %.2f ---" % avg_psnr)

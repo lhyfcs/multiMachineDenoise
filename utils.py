@@ -84,7 +84,7 @@ def save_images(filepath, ground_truth, noisy_image=None, clean_image=None):
     else:
         cat_image = np.concatenate([ground_truth, noisy_image, clean_image], axis=1)
     im = Image.fromarray(cat_image.astype('uint8')).convert('L')
-    im.save(filepath, 'png')
+    im.save(filepath, 'JPEG')
 
 
 def cal_psnr(im1, im2):
