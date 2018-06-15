@@ -80,23 +80,24 @@ class denoiser(object):
         np.random.shuffle(data)
         start_time = time.time()
         # this seesion will read save and restore data automatic from check point dir
+        saver = tf.train.Saver()
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=(task_index == 0),
             checkpoint_dir=checkpoint_dir,
             save_checkpoint_steps=1000,
             save_summaries_steps=1000) as sess:
             sess.run(init)
-            # load_model_status, global_step = self.load(sess, ckpt_dir)
-            # if load_model_status:
-            #     #iter_num = global_step
-            #     start_epoch = global_step // numBatch
-            #     #start_step = global_step % numBatch
-            #     print("[*] Model restore success!")
-            # else:
-            #     #iter_num = 0
-            #     start_epoch = 0
-            #     #start_step = 0
-            #     print("[*] Not find pretrained model!")
-            # print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, global_step))
+            load_model_status, global_step = self.load(saver, sess, ckpt_dir)
+            if load_model_status:
+                #iter_num = global_step
+                start_epoch = global_step // numBatch
+                #start_step = global_step % numBatch
+                print("[*] Model restore success!")
+            else:
+                #iter_num = 0
+                start_epoch = 0
+                #start_step = 0
+                print("[*] Not find pretrained model!")
+            print("[*] Start training, with start epoch %d start iter %d : " % (start_epoch, global_step))
             step = 0
             batch_id = 0
             epo = 0
@@ -126,9 +127,8 @@ class denoiser(object):
                    os.path.join(checkpoint_dir, model_name),
                    global_step=iter_num)
 
-    def load(self, sess, checkpoint_dir):
+    def load(self, saver, sess, checkpoint_dir):
         print("[*] Reading checkpoint...")
-        saver = tf.train.Saver()
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             full_path = tf.train.latest_checkpoint(checkpoint_dir)
@@ -146,7 +146,8 @@ class denoiser(object):
         # init variables
         tf.global_variables_initializer().run()
         assert len(test_files) != 0, 'No testing data!'
-        load_model_status = self.load(self.sess, ckpt_dir)
+        saver = tf.train.Saver()
+        load_model_status = self.load(saver, self.sess, ckpt_dir)
         assert load_model_status == True, '[!] Load weights FAILED...'
         print(" [*] Load weights SUCCESS...")
         psnr_sum = 0
