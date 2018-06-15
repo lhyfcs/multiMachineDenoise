@@ -36,6 +36,8 @@ nohup
 sigma=25, denoise细节消失的很厉害, 细节基本都被抹平了
 ## Restore
 使用MonitoredTrainingSession方式跑出的结果，.index和.data文件都保存在ps机器上而.meta文件保存在master worker机器上，restore的时候需要将文件拷贝过去
+
+输出的时候，需要输出self.X, 不然会报错，不知道为什么
 ## TODO
 - [x] Write code to support multi machine to learning
 - [x] Implement server to support restful API denoise

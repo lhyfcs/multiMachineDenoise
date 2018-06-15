@@ -26,7 +26,10 @@ class denoiser(object):
         self.Y_ = tf.placeholder(tf.float32, [None, None, None, self.input_c_dim],
                                  name='clean_image')
         self.is_training = tf.placeholder(tf.bool, name='is_training')
-        self.X = self.Y_ + tf.random_normal(shape=tf.shape(self.Y_), stddev=self.sigma / 255.0)  # noisy images
+        if isDenoise:
+            self.X = self.Y_
+        else:
+            self.X = self.Y_ + tf.random_normal(shape=tf.shape(self.Y_), stddev=self.sigma / 255.0)  # noisy images
         # self.X = self.Y_ + tf.truncated_normal(shape=tf.shape(self.Y_), stddev=self.sigma / 255.0)  # noisy images
         self.Y = dncnn(self.X, is_training=self.is_training)
         self.loss = (1.0 / batch_size) * tf.nn.l2_loss(self.Y_ - self.Y)
@@ -144,26 +147,25 @@ class denoiser(object):
     def test(self, test_files, ckpt_dir, save_dir):
         """Test DnCNN"""
         # init variables
+        saver = tf.train.Saver()
         tf.global_variables_initializer().run()
         assert len(test_files) != 0, 'No testing data!'
-        saver = tf.train.Saver()
-        load_model_status = self.load(saver, self.sess, ckpt_dir)
+        load_model_status, global_step = self.load(saver, self.sess, ckpt_dir)
         assert load_model_status == True, '[!] Load weights FAILED...'
         print(" [*] Load weights SUCCESS...")
         psnr_sum = 0
         print("[*] " + 'noise level: ' + str(self.sigma) + " start testing...")
         for idx in range(len(test_files)):
-            nosie_image = load_images(test_files[idx]).astype(np.float32) / 255.0
             start_time = time.time()
-            output_clean_image = self.sess.run([self.Y], feed_dict={self.Y_: nosie_image, self.is_training: False})
-            groundtruth = np.clip(255 * nosie_image, 0, 255).astype('uint8')
-            #noisyimage = np.clip(255 * noisy_image, 0, 255).astype('uint8')
+            clean_image = load_images(test_files[idx]).astype(np.float32) / 255.0
+            output_clean_image, _ = self.sess.run([self.Y, self.X],
+                                                            feed_dict={self.Y_: clean_image, self.is_training: False})
+            groundtruth = np.clip(255 * clean_image, 0, 255).astype('uint8')
             outputimage = np.clip(255 * output_clean_image, 0, 255).astype('uint8')
             # calculate PSNR
             psnr = cal_psnr(groundtruth, outputimage)
-            print("img%d PSNR: %.2f-- time:4.4%f" % (idx, psnr, time.time() - start_time))
-            psnr_sum += psnr
-            #save_images(os.path.join(save_dir, 'noisy%d.png' % idx), noisyimage)            
+            print("img%d PSNR: %.2f --- time:4.4%f" % (idx, psnr, time.time() - start_time))
+            psnr_sum += psnr           
             save_images(os.path.join(save_dir, 'denoised%d.jpg' % idx), outputimage)
         avg_psnr = psnr_sum / len(test_files)
         print("--- Average PSNR %.2f ---" % avg_psnr)
