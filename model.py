@@ -118,7 +118,7 @@ class denoiser(object):
                 if (step % numBatch == 0):
                     np.random.shuffle(data)
                 count += 1
-            sess.stop()
+            sess.close()
 
     def save(self, iter_num, ckpt_dir, model_name='DnCNN-tensorflow'):
         saver = tf.train.Saver()
@@ -150,7 +150,7 @@ class denoiser(object):
         saver = tf.train.Saver()
         tf.global_variables_initializer().run()
         assert len(test_files) != 0, 'No testing data!'
-        load_model_status, global_step = self.load(saver, self.sess, ckpt_dir)
+        load_model_status, _ = self.load(saver, self.sess, ckpt_dir)
         assert load_model_status == True, '[!] Load weights FAILED...'
         print(" [*] Load weights SUCCESS...")
         psnr_sum = 0
@@ -164,7 +164,7 @@ class denoiser(object):
             outputimage = np.clip(255 * output_clean_image, 0, 255).astype('uint8')
             # calculate PSNR
             psnr = cal_psnr(groundtruth, outputimage)
-            print("img%d PSNR: %.2f --- time:4.4%f" % (idx, psnr, time.time() - start_time))
+            print("img%d PSNR: %.2f --- time:%4.4f" % (idx, psnr, time.time() - start_time))
             psnr_sum += psnr           
             save_images(os.path.join(save_dir, 'denoised%d.jpg' % idx), outputimage)
         avg_psnr = psnr_sum / len(test_files)
