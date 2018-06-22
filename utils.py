@@ -57,11 +57,29 @@ class train_data():
         gc.collect()
         print("In __exit__()")
 
+def find_match_file(denoise_files, noise_files):
+    noise = []
+    for name1 in denoise_files:
+        id = name1.split('/')[-1].split('_')[0]
+        for name2 in noise_files:
+            if name2.find(id) >= 0:
+                noise.append(name2)
+    return noise
 
 def load_data(filepath='./data/image_clean_pat.npy'):
     return train_data(filepath=filepath)
 
-
+def load_conv_images(filelist, width, height):
+    if not isinstance(filelist, list):
+        im = Image.open(filelist)
+        return np.array(im).reshape(1, im.size[1], im.size[0], 3)
+    output=np.zeros((len(filelist), height, width, 3), dtype="uint8")
+    index = 0
+    for file in filelist:
+        img = Image.open(file)
+        output[index, :, :, :] = np.array(img).reshape(1, img.size[1], img.size[0], 3)
+        index+=1
+    return output
 def load_images(filelist):
     # pixel value range 0-255
     if not isinstance(filelist, list):
@@ -83,7 +101,7 @@ def save_images(filepath, ground_truth, noisy_image=None, clean_image=None):
         cat_image = ground_truth
     else:
         cat_image = np.concatenate([ground_truth, noisy_image, clean_image], axis=1)
-    im = Image.fromarray(cat_image.astype('uint8')).convert('L')
+    im = Image.fromarray(cat_image.astype('uint8'))
     im.save(filepath, 'JPEG')
 
 

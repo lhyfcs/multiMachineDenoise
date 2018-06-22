@@ -4,10 +4,12 @@ from glob import glob
 import tensorflow as tf
 
 from model import denoiser
+from convmodel import convdenoiser
+from model_cmp import cmpdenoiser
 from utils import *
 
 parser = argparse.ArgumentParser(description='')
-parser.add_argument('--epoch', dest='epoch', type=int, default=7, help='# of epoch')
+parser.add_argument('--epoch', dest='epoch', type=int, default=100, help='# of epoch')
 parser.add_argument('--batch_size', dest='batch_size', type=int, default=128, help='# images in batch')
 parser.add_argument('--lr', dest='lr', type=float, default=0.001, help='initial learning rate for adam')
 parser.add_argument('--use_gpu', dest='use_gpu', type=int, default=1, help='gpu flag, 1 for GPU and 0 for CPU')
@@ -20,6 +22,9 @@ parser.add_argument('--eval_set', dest='eval_set', default='Set12', help='datase
 parser.add_argument('--test_set', dest='test_set', default='BSD68', help='dataset for testing')
 parser.add_argument('--task_index', dest='task_index', default=0, help='set machine task index')
 parser.add_argument('--job_name', dest='job_name', default='ps', help='set machine job name')
+parser.add_argument('--denoise_set', dest='denoise_set', default='ultraHDImage', help='folder for denoised images')
+parser.add_argument('--img_width', dest='img_width', default=3200, help='width for images')
+parser.add_argument('--img_height', dest='img_height', default=1800, help='height for images')
 args = parser.parse_args()
 
 
@@ -50,6 +55,15 @@ def denoiser_train(denoiser, server, task_index, lr):
         denoiser.train(server, data, eval_data, batch_size=args.batch_size, ckpt_dir=args.ckpt_dir, epoch=args.epoch, lr=lr,
                        sample_dir=args.sample_dir, task_index=task_index)
 
+def conv_denoise_train(denoiser, server, task_index, lr):
+    denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
+    noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
+    denoiser.train(server, denoise_files, noise_files, width=args.img_width, height=args.img_height, ckpt_dir=args.ckpt_dir, epoch=args.epoch, lr=lr, task_index=task_index)
+
+def cmp_denoise_train(denoiser, server, task_index):
+    data_denoise = load_data(filepath='./data/img_denoise_pats.npy')
+    data_noise = load_data(filepath='./data/img_noise_pats.npy')
+    denoiser.train(server, data_denoise, data_noise, batch_size=args.batch_size, ckpt_dir=args.ckpt_dir, epoch=args.epoch, task_index=task_index)
 
 def denoiser_test(denoiser):
     test_files = glob('./data/test/{}/*.jpg'.format(args.test_set))
@@ -58,6 +72,23 @@ def denoiser_test(denoiser):
 def create_done_queue(num_workers):
     with tf.device("/job:ps/task:0"):
         return tf.FIFOQueue(num_workers, tf.int32, shared_name="done_queue0")
+
+def createServer():
+    if FLAGS.job_name is None or FLAGS.job_name == "":
+        raise ValueError("Must specify an explicit `job_name`")
+    if FLAGS.task_index is None or FLAGS.task_index =="":
+        raise ValueError("Must specify an explicit `task_index`")
+    print("job name = %s" % FLAGS.job_name)
+    print("task index = %d" % FLAGS.task_index)
+
+    ps_spec = FLAGS.ps_hosts.split(",")
+    worker_spec = FLAGS.worker_hosts.split(",")
+    #num_workers = len(worker_spec)
+    cluster = tf.train.ClusterSpec({
+        "ps": ps_spec,
+        "worker": worker_spec})        
+    server = tf.train.Server(cluster, job_name=FLAGS.job_name, task_index=FLAGS.task_index)
+    return server, cluster
 
 def main(_):
     if not os.path.exists(args.ckpt_dir):
@@ -80,21 +111,7 @@ def main(_):
                 denoiser_test(model)
     elif args.phase == 'train':
         # distribution check
-        if FLAGS.job_name is None or FLAGS.job_name == "":
-            raise ValueError("Must specify an explicit `job_name`")
-        if FLAGS.task_index is None or FLAGS.task_index =="":
-            raise ValueError("Must specify an explicit `task_index`")
-        print("job name = %s" % FLAGS.job_name)
-        print("task index = %d" % FLAGS.task_index)
-
-        ps_spec = FLAGS.ps_hosts.split(",")
-        worker_spec = FLAGS.worker_hosts.split(",")
-        #num_workers = len(worker_spec)
-        cluster = tf.train.ClusterSpec({
-            "ps": ps_spec,
-            "worker": worker_spec})        
-        server = tf.train.Server(cluster, job_name=FLAGS.job_name, task_index=FLAGS.task_index)
-
+        server, cluster = createServer()
         if FLAGS.job_name == "ps":
             server.join() 
         elif FLAGS.job_name == "worker":
@@ -102,6 +119,40 @@ def main(_):
             with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
                 model = denoiser(sigma=args.sigma)
                 denoiser_train(model, server, FLAGS.task_index, lr=lr)
+    elif args.phase == 'trainconv':
+        server, cluster = createServer()
+        if FLAGS.job_name == "ps":
+            server.join() 
+        elif FLAGS.job_name == "worker":
+            worker_device = "/job:worker/task:%d" % FLAGS.task_index
+            with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
+                model = convdenoiser()
+                conv_denoise_train(model, server, FLAGS.task_index, lr=lr)
+    elif args.phase == 'traincmp':
+        server, cluster = createServer()
+        if FLAGS.job_name == "ps":
+            server.join() 
+        elif FLAGS.job_name == "worker":
+            worker_device = "/job:worker/task:%d" % FLAGS.task_index
+            with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
+                model = cmpdenoiser(sigma=args.sigma)
+                denoiser_train(model, server, FLAGS.task_index, lr=lr)
+    elif args.phase == 'compare':
+        denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
+        noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
+        diffs = 0.0
+        for file in denoise_files:
+            noise_file = find_match_file([file], noise_files)
+            noise_image = load_images(noise_file[0]).astype(np.float32) / 255.0
+            denoise_image = load_images(file).astype(np.float32) / 255.0
+            save_img = np.clip(255 * noise_image, 0, 255).astype('uint8')
+            
+            save_images(os.path.join(args.test_dir, file.split("/")[-1].split("_")[0] + ".jpg"), save_img)
+            diff = cal_psnr(denoise_image, noise_image)
+            print "diff for image: %.6f" % diff
+            diffs += diff
+        diffs = diffs / len(denoise_files)
+        print "everage diff %.6f" % diffs
     else:
         print('[!]Unknown phase')
         exit(0)
