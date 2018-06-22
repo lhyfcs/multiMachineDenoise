@@ -38,8 +38,9 @@ def data_augmentation(image, mode):
 
 
 class train_data():
-    def __init__(self, filepath='./data/image_clean_pat.npy'):
+    def __init__(self, filepath='./data/image_clean_pat.npy', rand=True):
         self.filepath = filepath
+        self.rand = rand
         assert '.npy' in filepath
         if not os.path.exists(filepath):
             print("[!] Data file not exists")
@@ -48,7 +49,8 @@ class train_data():
     def __enter__(self):
         print("[*] Loading data...")
         self.data = np.load(self.filepath)
-        np.random.shuffle(self.data)
+        if self.rand:
+            np.random.shuffle(self.data)
         print("[*] Load successfully...")
         return self.data
 
@@ -66,8 +68,39 @@ def find_match_file(denoise_files, noise_files):
                 noise.append(name2)
     return noise
 
-def load_data(filepath='./data/image_clean_pat.npy'):
-    return train_data(filepath=filepath)
+def load_data(filepath='./data/image_clean_pat.npy', rand=True):
+    return train_data(filepath=filepath, rand=True)
+
+
+def load_image_patches(filelist, patch_size, stride = 20, batch_size=128):
+    # only support file list is list
+    if not isinstance(filelist, list):
+        return None
+    for file in range(filelist):
+        img = Image.open(file)  # convert RGB to gray
+        im_h, im_w = img.size
+        count = (im_h - patch_size) * (im_w - patch_size) / (stride * stride)
+    if count % batch_size != 0:
+        numPatches = int((count / batch_size + 1) * batch_size)
+    else:
+        numPatches = count
+    inputs = np.zeros((numPatches, patch_size, patch_size, 3), dtype="uint8")
+    count = 0
+    # generate patches
+    for file in range(filelist):
+        img = Image.open(file)
+        img_s = np.reshape(np.array(img, dtype="uint8"), (img.size[0], img.size[1], 3))  # extend one dimension
+        
+        im_h, im_w, _ = img_s.shape
+        for x in range(0, im_h - patch_size, stride):
+            for y in range(0, im_w - patch_size, stride):
+                inputs[count, :, :, :] = img_s[x:x + patch_size, y:y + patch_size, :]
+                count += 1
+    # pad the batch
+    if count < numPatches:
+        to_pad = numPatches - count
+        inputs[-to_pad:, :, :, :] = inputs[:to_pad, :, :, :]
+    return inputs
 
 def load_conv_images(filelist, width, height):
     if not isinstance(filelist, list):

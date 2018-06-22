@@ -61,9 +61,12 @@ def conv_denoise_train(denoiser, server, task_index, lr):
     denoiser.train(server, denoise_files, noise_files, width=args.img_width, height=args.img_height, ckpt_dir=args.ckpt_dir, epoch=args.epoch, lr=lr, task_index=task_index)
 
 def cmp_denoise_train(denoiser, server, task_index):
-    data_denoise = load_data(filepath='./data/img_denoise_pats.npy')
-    data_noise = load_data(filepath='./data/img_noise_pats.npy')
-    denoiser.train(server, data_denoise, data_noise, batch_size=args.batch_size, ckpt_dir=args.ckpt_dir, epoch=args.epoch, task_index=task_index)
+    with load_data(filepath='./data/img_denoise_pats.npy', rand=False) as data_denoise:
+        with load_data(filepath='./data/img_noise_pats.npy', rand=False) as data_noise:
+            print (len(data_denoise))
+            data_denoise = data_denoise.astype(np.float32) / 255.0  # normalize the data to 0-1
+            data_noise = data_noise.astype(np.float32) / 255.0  # normalize the data to 0-1
+            denoiser.train(server, data_denoise, data_noise, batch_size=args.batch_size, ckpt_dir=args.ckpt_dir, epoch=args.epoch, task_index=task_index)
 
 def denoiser_test(denoiser):
     test_files = glob('./data/test/{}/*.jpg'.format(args.test_set))
@@ -135,8 +138,8 @@ def main(_):
         elif FLAGS.job_name == "worker":
             worker_device = "/job:worker/task:%d" % FLAGS.task_index
             with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
-                model = cmpdenoiser(sigma=args.sigma)
-                denoiser_train(model, server, FLAGS.task_index, lr=lr)
+                model = cmpdenoiser()
+                cmp_denoise_train(model, server, FLAGS.task_index)
     elif args.phase == 'compare':
         denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
         noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
@@ -149,10 +152,8 @@ def main(_):
             
             save_images(os.path.join(args.test_dir, file.split("/")[-1].split("_")[0] + ".jpg"), save_img)
             diff = cal_psnr(denoise_image, noise_image)
-            print "diff for image: %.6f" % diff
             diffs += diff
         diffs = diffs / len(denoise_files)
-        print "everage diff %.6f" % diffs
     else:
         print('[!]Unknown phase')
         exit(0)

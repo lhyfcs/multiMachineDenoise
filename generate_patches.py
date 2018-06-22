@@ -1,5 +1,5 @@
 import argparse
-import glob import glob
+from glob import glob 
 from PIL import Image
 import PIL
 import random
@@ -17,17 +17,18 @@ parser.add_argument('--patch_size', dest='pat_size', type=int, default=40, help=
 parser.add_argument('--stride', dest='stride', type=int, default=10, help='stride')
 parser.add_argument('--step', dest='step', type=int, default=0, help='step')
 parser.add_argument('--batch_size', dest='bat_size', type=int, default=128, help='batch size')
-parser.add_argument('--denoise_set', dest='denoise_set', default='./data/test/ultraHDImage', help='folder for denoised images')
+parser.add_argument('--denoise_set', dest='denoise_set', default='ultraHDImage', help='folder for denoised images')
 # check output arguments
 parser.add_argument('--from_file', dest='from_file', default="./data/img_clean_pats.npy", help='get pic from file')
 parser.add_argument('--num_pic', dest='num_pic', type=int, default=10, help='number of pic to pick')
+parser.add_argument('--phase', dest='phase', default='', help='type for generate patches')
 args = parser.parse_args()
 
 
 def generate_patches(isDebug=False):
     global DATA_AUG_TIMES
     count = 0
-    filepaths = glob.glob(args.src_dir + '/*.jpg')
+    filepaths = glob(args.src_dir + '/*.jpg')
     if isDebug:
         filepaths = filepaths[:10]
     print ("number of training data %d" % len(filepaths))
@@ -98,8 +99,7 @@ def save_patches(files, numPatches, name):
             im_h, im_w, _ = img_s.shape
             for x in range(0 + args.step, im_h - args.pat_size, args.stride):
                 for y in range(0 + args.step, im_w - args.pat_size, args.stride):
-                    inputs[count, :, :, :] = data_augmentation(img_s[x:x + args.pat_size, y:y + args.pat_size, :], \
-                                                                random.randint(0, 7))
+                    inputs[count, :, :, :] = img_s[x:x + args.pat_size, y:y + args.pat_size, :]
                     count += 1
     # pad the batch
     if count < numPatches:
@@ -116,7 +116,6 @@ def generate_compare_patches():
     count = 0
     denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
     noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
-
     for i in range(len(denoise_files)):
         img = Image.open(denoise_files[i])  # convert RGB to gray
         im_h, im_w = img.size

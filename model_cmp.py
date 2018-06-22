@@ -3,7 +3,7 @@ import time
 from utils import *
 
 
-def dncnn(input, is_training=True, output_channels=1):
+def dncnn(input, is_training=True, output_channels=3):
     with tf.variable_scope('block1'):
         output = tf.layers.conv2d(input, 64, 3, padding='same', activation=tf.nn.relu)
     for layers in range(2, 16 + 1):
@@ -15,7 +15,7 @@ def dncnn(input, is_training=True, output_channels=1):
     return input - output
 
 
-class denoiser(object):
+class cmpdenoiser(object):
     def __init__(self, sees=None, input_c_dim=3, batch_size=128, num_workers = 1):
         if sees != None:
             self.sess = sees
@@ -25,7 +25,7 @@ class denoiser(object):
         self.Y_ = tf.placeholder(tf.float32, [None, None, None, self.input_c_dim],
                                  name='clean_image')
         self.X_ = tf.placeholder(tf.float32, [None, None, None, self.input_c_dim],
-                                 name='clean_image')
+                                 name='noise_image')
         decay_steps = tf.Variable(tf.constant(100), name='decay_step', trainable=False)
         self.is_training = tf.placeholder(tf.bool, name='is_training')
         self.Y = dncnn(self.X_, is_training=self.is_training)
@@ -78,13 +78,13 @@ class denoiser(object):
             while not sess.should_stop() and step < epoch * numBatch:
                 denoise_images = data_denoise[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
                 noise_images = data_noise[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-                _, loss, step = sess.run([self.train_op, self.loss, self.global_step],
+                _, loss, step, lr = sess.run([self.train_op, self.loss, self.global_step],
                                                     feed_dict={self.Y_: denoise_images, self.X_: noise_images, self.is_training: True})
                 step += 1
                 epo = step // numBatch
                 batch_id = step % numBatch
-                print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f"
-                      % (epo, batch_id, numBatch, time.time() - start_time, loss))
+                print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f, learning_rate: %.6f"
+                      % (epo, batch_id, numBatch, time.time() - start_time, loss, lr))
                 count += 1
             sess.close()
 
