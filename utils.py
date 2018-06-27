@@ -69,7 +69,7 @@ def find_match_file(denoise_files, noise_files):
     return noise
 
 def load_data(filepath='./data/image_clean_pat.npy', rand=True):
-    return train_data(filepath=filepath, rand=True)
+    return train_data(filepath=filepath, rand=rand)
 
 
 def load_image_patches(filelist, patch_size, stride = 20, batch_size=128):

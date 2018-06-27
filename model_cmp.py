@@ -1,6 +1,7 @@
 import time
 
 from utils import *
+from glob import glob
 
 
 def dncnn(input, is_training=True, output_channels=3):
@@ -12,11 +13,11 @@ def dncnn(input, is_training=True, output_channels=3):
             output = tf.nn.relu(tf.layers.batch_normalization(output, training=is_training))
     with tf.variable_scope('block17'):
         output = tf.layers.conv2d(output, output_channels, 3, padding='same')
-    return input - output
+    return output
 
 
 class cmpdenoiser(object):
-    def __init__(self, sees=None, input_c_dim=3, batch_size=128, num_workers = 1):
+    def __init__(self, sees=None, is_chief=False,input_c_dim=3, batch_size=128, num_workers = 7):
         if sees != None:
             self.sess = sees
         self.input_c_dim = input_c_dim
@@ -26,7 +27,7 @@ class cmpdenoiser(object):
                                  name='clean_image')
         self.X_ = tf.placeholder(tf.float32, [None, None, None, self.input_c_dim],
                                  name='noise_image')
-        decay_steps = tf.Variable(tf.constant(100), name='decay_step', trainable=False)
+        decay_steps = tf.Variable(tf.constant(500), name='decay_step', trainable=False)
         self.is_training = tf.placeholder(tf.bool, name='is_training')
         self.Y = dncnn(self.X_, is_training=self.is_training)
         self.loss = (1.0 / batch_size) * tf.nn.l2_loss(self.Y_ - self.Y)
@@ -36,9 +37,14 @@ class cmpdenoiser(object):
 
         self.eva_psnr = tf_psnr(self.Y, self.Y_)
         optimizer = tf.train.AdamOptimizer(self.learning_rate, name='AdamOptimizer')
+        # optimizer = tf.train.SyncReplicasOptimizer(optimizer,
+        #     replicas_to_aggregate=num_workers,
+        #     total_num_replicas=num_workers)
+        
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             self.train_op = optimizer.minimize(self.loss, global_step=self.global_step)
+            #self.hook=optimizer.make_session_run_hook(is_chief, num_tokens=0)
         print("[*] Initialize model successfully...")
 
 
@@ -52,13 +58,15 @@ class cmpdenoiser(object):
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
         start_time = time.time()
+        scaffold = tf.train.Scaffold(init_op=init)
         # this seesion will read save and restore data automatic from check point dir
         saver = tf.train.Saver()
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=(task_index == 0),
             checkpoint_dir=checkpoint_dir,
-            save_checkpoint_steps=100,
-            save_summaries_steps=100) as sess:
-            sess.run(init)
+            save_checkpoint_steps=500,
+            save_summaries_steps=500,
+            scaffold=scaffold) as sess:
+            #sess.run(init)
             load_model_status, global_step = self.load(saver, sess, ckpt_dir)
             if load_model_status:
                 #iter_num = global_step
@@ -75,16 +83,21 @@ class cmpdenoiser(object):
             batch_id = 0
             epo = 0
             count = 0
+            place = [n for n in range(0, numBatch)]
+            np.random.shuffle(place)
             while not sess.should_stop() and step < epoch * numBatch:
-                denoise_images = data_denoise[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-                noise_images = data_noise[batch_id * batch_size:(batch_id + 1) * batch_size, :, :, :]
-                _, loss, step, lr = sess.run([self.train_op, self.loss, self.global_step],
+                pos = place[step]
+                denoise_images = data_denoise[pos * batch_size:(pos + 1) * batch_size, :, :, :]
+                noise_images = data_noise[pos * batch_size:(pos + 1) * batch_size, :, :, :]
+                _, loss, step, lr, psnr = sess.run([self.train_op, self.loss, self.global_step, self.learning_rate, self.eva_psnr],
                                                     feed_dict={self.Y_: denoise_images, self.X_: noise_images, self.is_training: True})
                 step += 1
                 epo = step // numBatch
                 batch_id = step % numBatch
-                print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f, learning_rate: %.6f"
-                      % (epo, batch_id, numBatch, time.time() - start_time, loss, lr))
+                if batch_id == 0:
+                    np.random.shuffle(place)
+                print("Epoch: [%4d] Global step: [%4d/%4d] time: %4.4f, loss: %.6f, learning_rate: %.6f, psnr: %.6f"
+                      % (epo, batch_id, numBatch, time.time() - start_time, loss, lr, psnr))
                 count += 1
             sess.close()
 
@@ -115,7 +128,7 @@ class cmpdenoiser(object):
         for idx in range(len(test_files)):
             start_time = time.time()
             clean_image = load_images(test_files[idx]).astype(np.float32) / 255.0
-            output_clean_image = self.sess.run([self.Y],feed_dict={self.Y_: clean_image, self.is_training: False})
+            output_clean_image = self.sess.run(self.Y,feed_dict={self.X_: clean_image, self.is_training: False})
             groundtruth = np.clip(255 * clean_image, 0, 255).astype('uint8')
             outputimage = np.clip(255 * output_clean_image, 0, 255).astype('uint8')
             # calculate PSNR

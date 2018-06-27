@@ -13,6 +13,7 @@ DATA_AUG_TIMES = 1  # transform a sample to a different sample for DATA_AUG_TIME
 parser = argparse.ArgumentParser(description='')
 parser.add_argument('--src_dir', dest='src_dir', default='./data/HDTrain', help='dir of data')
 parser.add_argument('--save_dir', dest='save_dir', default='./data', help='dir of patches')
+parser.add_argument('--test_dir', dest='test_dir', default='./test', help='dir of test')
 parser.add_argument('--patch_size', dest='pat_size', type=int, default=40, help='patch size')
 parser.add_argument('--stride', dest='stride', type=int, default=10, help='stride')
 parser.add_argument('--step', dest='step', type=int, default=0, help='step')
@@ -92,38 +93,41 @@ def save_patches(files, numPatches, name):
     # generate patches
     for i in range(len(files)):
         img = Image.open(files[i])
-        img_s = np.reshape(np.array(img, dtype="uint8"),
-                            (img.size[0], img.size[1], 3))  # extend one dimension
-        
-        for j in range(DATA_AUG_TIMES):
-            im_h, im_w, _ = img_s.shape
-            for x in range(0 + args.step, im_h - args.pat_size, args.stride):
-                for y in range(0 + args.step, im_w - args.pat_size, args.stride):
-                    inputs[count, :, :, :] = img_s[x:x + args.pat_size, y:y + args.pat_size, :]
-                    count += 1
+        img_s = np.reshape(np.array(img, dtype="uint8"),(img.size[1], img.size[0], 3))  # extend one dimension
+        im_h, im_w, _ = img_s.shape
+        for x in range(0 + args.step, im_h - args.pat_size, args.stride):
+            for y in range(0 + args.step, im_w - args.pat_size, args.stride):
+                inputs[count, :, :, :] = img_s[x:x + args.pat_size, y:y + args.pat_size, :]
+                # if count % 200 == 0:
+                #     print ('save batch')
+                #     save_images(os.path.join(args.test_dir, '%s%d.jpg' % (name, count)), inputs[count: count+1])
+                count += 1
     # pad the batch
     if count < numPatches:
         to_pad = numPatches - count
         inputs[-to_pad:, :, :, :] = inputs[:to_pad, :, :, :]
-    
+
+    for i in range(0, 10):
+        pos = (i + 1) * args.bat_size
+        print (pos)
+        save_images(os.path.join(args.test_dir, '%s%d.jpg' % (name, i)), inputs[pos:pos+1])
+
     if not os.path.exists(args.save_dir):
         os.mkdir(args.save_dir)
     np.save(os.path.join(args.save_dir, name), inputs)
     print ("size of inputs tensor = " + str(inputs.shape))
 
 def generate_compare_patches():
-    global DATA_AUG_TIMES
     count = 0
     denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
     noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
     for i in range(len(denoise_files)):
         img = Image.open(denoise_files[i])  # convert RGB to gray
-        im_h, im_w = img.size
+        im_w, im_h = img.size
         for x in range(0 + args.step, (im_h - args.pat_size), args.stride):
             for y in range(0 + args.step, (im_w - args.pat_size), args.stride):
                 count += 1
-    origin_patch_num = count * DATA_AUG_TIMES
-    
+    origin_patch_num = count
     if origin_patch_num % args.bat_size != 0:
         numPatches = int((origin_patch_num / args.bat_size + 1) * args.bat_size)
     else:
@@ -138,5 +142,5 @@ def generate_compare_patches():
 if __name__ == '__main__':
     if args.phase == 'compare_mode':
         generate_compare_patches()
-    else:
+    else:   
         generate_patches()
