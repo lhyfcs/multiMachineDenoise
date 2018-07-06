@@ -72,24 +72,24 @@ def load_data(filepath='./data/image_clean_pat.npy', rand=True):
     return train_data(filepath=filepath, rand=rand)
 
 
-def load_image_patches(filelist, patch_size, stride = 20, batch_size=128):
+def load_images_patches(filelist, patch_size = 40, stride = 40, batch_size=128):
     # only support file list is list
     if not isinstance(filelist, list):
         return None
-    for file in range(filelist):
+    for file in filelist:
         img = Image.open(file)  # convert RGB to gray
         im_h, im_w = img.size
         count = (im_h - patch_size) * (im_w - patch_size) / (stride * stride)
     if count % batch_size != 0:
         numPatches = int((count / batch_size + 1) * batch_size)
     else:
-        numPatches = count
+        numPatches = int(count + 0.5)
     inputs = np.zeros((numPatches, patch_size, patch_size, 3), dtype="uint8")
     count = 0
     # generate patches
-    for file in range(filelist):
+    for file in filelist:
         img = Image.open(file)
-        img_s = np.reshape(np.array(img, dtype="uint8"), (img.size[0], img.size[1], 3))  # extend one dimension
+        img_s = np.reshape(np.array(img, dtype="uint8"), (img.size[1], img.size[0], 3))  # extend one dimension
         
         im_h, im_w, _ = img_s.shape
         for x in range(0, im_h - patch_size, stride):
@@ -97,10 +97,44 @@ def load_image_patches(filelist, patch_size, stride = 20, batch_size=128):
                 inputs[count, :, :, :] = img_s[x:x + patch_size, y:y + patch_size, :]
                 count += 1
     # pad the batch
+    if batch_size == None:
+        return inputs
     if count < numPatches:
         to_pad = numPatches - count
         inputs[-to_pad:, :, :, :] = inputs[:to_pad, :, :, :]
     return inputs
+
+def load_image_patches(file, patch_size = 40):
+    img = Image.open(file)  # convert RGB to gray
+    im_w, im_h = img.size
+    width_count = int((im_w)/patch_size + 0.5)
+    height_count = int((im_h)/patch_size + 0.5)
+    count = width_count * height_count
+    inputs = np.zeros((count, patch_size, patch_size, 3), dtype="uint8")
+    count = 0
+    # generate patches
+    img = Image.open(file)
+    img_s = np.reshape(np.array(img, dtype="uint8"), (img.size[1], img.size[0], 3))  # extend one dimension
+    print (img_s.shape)
+    im_h, im_w, _ = img_s.shape
+    for x in range(0, im_h, patch_size):
+        for y in range(0, im_w, patch_size):
+            inputs[count, :, :, :] = img_s[x:x + patch_size, y:y + patch_size, :]
+            count += 1
+    return inputs, width_count, height_count
+
+def save_patches_to_image(patches, patch_size, width, height, filepath):
+    outputimage = np.zeros((height * patch_size, width * patch_size, 3), dtype="uint8")
+    for x in range(0, height):
+        for y in range(0, width):
+            count = x * width + y
+            x_start = x * patch_size
+            y_start = y * patch_size
+            outputimage[x_start:x_start + patch_size, y_start:y_start + patch_size, :] = patches[count]
+    # for i in range(0, patches.shape[0]):
+    #     save_images("%s/%d.jpg" % (filepath, i), patches[i:i+1])
+    print (outputimage.shape)
+    save_images(filepath, outputimage)
 
 def load_conv_images(filelist, width, height):
     if not isinstance(filelist, list):

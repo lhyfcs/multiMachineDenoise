@@ -13,7 +13,7 @@ def dncnn(input, is_training=True, output_channels=3):
             output = tf.nn.relu(tf.layers.batch_normalization(output, training=is_training))
     with tf.variable_scope('block17'):
         output = tf.layers.conv2d(output, output_channels, 3, padding='same')
-    return output
+    return input - output
 
 
 class cmpdenoiser(object):
@@ -39,7 +39,8 @@ class cmpdenoiser(object):
         optimizer = tf.train.AdamOptimizer(self.learning_rate, name='AdamOptimizer')
         # optimizer = tf.train.SyncReplicasOptimizer(optimizer,
         #     replicas_to_aggregate=num_workers,
-        #     total_num_replicas=num_workers)
+        #     total_num_replicas=num_workers,
+        #     name='sync_replicas')
         
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
@@ -49,7 +50,7 @@ class cmpdenoiser(object):
 
 
     def train(self, server, data_denoise, data_noise, batch_size, ckpt_dir, epoch, task_index=0, eval_every_epoch=2):
-        init = tf.global_variables_initializer()
+        #init = tf.global_variables_initializer()
         # assert data range is between 0 and 1
         numBatch = int(data_denoise.shape[0] / batch_size)
         # load pretrained model
@@ -58,14 +59,13 @@ class cmpdenoiser(object):
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
         start_time = time.time()
-        scaffold = tf.train.Scaffold(init_op=init)
+        #scaffold = tf.train.Scaffold(init_op=init)
         # this seesion will read save and restore data automatic from check point dir
         saver = tf.train.Saver()
         with tf.train.MonitoredTrainingSession(master=server.target, is_chief=(task_index == 0),
             checkpoint_dir=checkpoint_dir,
             save_checkpoint_steps=500,
-            save_summaries_steps=500,
-            scaffold=scaffold) as sess:
+            save_summaries_steps=500) as sess:
             #sess.run(init)
             load_model_status, global_step = self.load(saver, sess, ckpt_dir)
             if load_model_status:
@@ -86,7 +86,8 @@ class cmpdenoiser(object):
             place = [n for n in range(0, numBatch)]
             np.random.shuffle(place)
             while not sess.should_stop() and step < epoch * numBatch:
-                pos = place[step]
+                pos = place[batch_id]
+                print ('batch id: %d' % pos)
                 denoise_images = data_denoise[pos * batch_size:(pos + 1) * batch_size, :, :, :]
                 noise_images = data_noise[pos * batch_size:(pos + 1) * batch_size, :, :, :]
                 _, loss, step, lr, psnr = sess.run([self.train_op, self.loss, self.global_step, self.learning_rate, self.eva_psnr],
@@ -106,6 +107,7 @@ class cmpdenoiser(object):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             full_path = tf.train.latest_checkpoint(checkpoint_dir)
+            print ('full_path: %s' % full_path)
             if full_path:
                 global_step = int(full_path.split('/')[-1].split('-')[-1].split('.')[0])
                 saver.restore(sess, full_path)
@@ -128,6 +130,7 @@ class cmpdenoiser(object):
         for idx in range(len(test_files)):
             start_time = time.time()
             clean_image = load_images(test_files[idx]).astype(np.float32) / 255.0
+            #clean_image = load_image_patches([test_files[idx]]).astype(np.float32) / 255.0
             output_clean_image = self.sess.run(self.Y,feed_dict={self.X_: clean_image, self.is_training: False})
             groundtruth = np.clip(255 * clean_image, 0, 255).astype('uint8')
             outputimage = np.clip(255 * output_clean_image, 0, 255).astype('uint8')

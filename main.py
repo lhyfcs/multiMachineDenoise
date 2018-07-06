@@ -38,7 +38,8 @@ flags.DEFINE_integer("replicas_to_aggregate", None,
                      "num_workers)")
 flags.DEFINE_string("ps_hosts", "10.80.54.230:2222",
                     "Comma-separated list of hostname:port pairs")
-flags.DEFINE_string("worker_hosts", "10.80.51.58:2228,10.80.51.60:2229,10.80.51.49:2223,10.80.51.53:2224,10.80.51.52:2225,10.80.51.55:2226,10.80.51.48:2227",
+#flags.DEFINE_string("worker_hosts", "10.80.51.58:2228,10.80.51.60:2229,10.80.51.49:2223,10.80.51.53:2224,10.80.51.52:2225,10.80.51.55:2226,10.80.51.48:2227",
+flags.DEFINE_string("worker_hosts", "10.80.51.58:2228",
                     "Comma-separated list of hostname:port pairs")
 flags.DEFINE_string("job_name", args.job_name, "job name: worker or ps")
 flags.DEFINE_integer("task_index", args.task_index,
@@ -62,16 +63,17 @@ def conv_denoise_train(denoiser, server, task_index, lr):
     noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
     denoiser.train(server, denoise_files, noise_files, width=args.img_width, height=args.img_height, ckpt_dir=args.ckpt_dir, epoch=args.epoch, lr=lr, task_index=task_index)
 
-def conv_patch_denoise_train(denoiser, server, task_index):
+def conv_patch_denoise_train(denoiser, server=None, task_index=0):
     with load_data(filepath='./data/img_denoise_pats.npy', rand=False) as data_denoise:
         with load_data(filepath='./data/img_noise_pats.npy', rand=False) as data_noise:
             data_denoise = data_denoise.astype(np.float32) / 255.0  # normalize the data to 0-1
             data_noise = data_noise.astype(np.float32) / 255.0  # normalize the data to 0-1
             denoiser.train(server, data_denoise, data_noise, './data/test/{}/*.jpg'.format(args.test_set), args.test_dir, 128, ckpt_dir=args.ckpt_dir, epoch=args.epoch, task_index=task_index)
 
-def cmp_denoise_train(denoiser, server, task_index):
+def cmp_denoise_train(server, task_index, num_worker=7):
     with load_data(filepath='./data/img_denoise_pats.npy', rand=False) as data_denoise:
         with load_data(filepath='./data/img_noise_pats.npy', rand=False) as data_noise:
+            denoiser = cmpdenoiser(num_workers=num_worker, is_chief=FLAGS.task_index==0)
             print (len(data_denoise))
             data_denoise = data_denoise.astype(np.float32) / 255.0  # normalize the data to 0-1
             data_noise = data_noise.astype(np.float32) / 255.0  # normalize the data to 0-1
@@ -160,10 +162,8 @@ def main(_):
             server.join() 
         elif FLAGS.job_name == "worker":
             worker_device = "/job:worker/task:%d" % FLAGS.task_index
-            with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):
-                worker_spec = FLAGS.worker_hosts.split(",")
-                model = cmpdenoiser(num_workers=len(worker_spec), is_chief=FLAGS.task_index==0)
-                cmp_denoise_train(model, server, FLAGS.task_index)
+            with tf.device(tf.train.replica_device_setter(worker_device=worker_device, ps_device="/job:ps/cpu:0", cluster=cluster)):                
+                cmp_denoise_train(server, FLAGS.task_index, num_worker=FLAGS.worker_hosts.split(","))
     elif args.phase == 'compare':
         denoise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set))
         noise_files = glob('./data/test/{}/*.jpg'.format(args.denoise_set+'_nodenoise'))
@@ -178,19 +178,27 @@ def main(_):
             diff = cal_psnr(denoise_image, noise_image)
             diffs += diff
         diffs = diffs / len(denoise_files)
+    elif args.phase == 'alone_conv_patch':
+        with tf.device("/cpu:0"):
+            model = convpatchdenoiser()
+            conv_patch_denoise_train(model)
     elif args.phase == 'batch_cmp':
-        with load_data(filepath='./data/img_denoise_pats.npy', rand=False) as data_denoise:
-            with load_data(filepath='./data/img_noise_pats.npy', rand=False) as data_noise:
-                numBatch = int(data_denoise.shape[0] / 128)
-                noise_num = int(data_denoise.shape[0] / 128)
-                print ('%d---%d' % (numBatch, noise_num))
-                for i in range(0, 10):
-                    num = random.randint(0,numBatch)
-                    print (num)
-                    denoise = data_denoise[num:num + 1, :, :, :]
-                    noise = data_noise[num:num + 1, :, :, :]
-                    save_images(os.path.join(args.test_dir, 'denoised%d.jpg' % i), denoise)
-                    save_images(os.path.join(args.test_dir, 'noise%d.jpg' % i), noise)
+        place = [n for n in range(0, 20)]
+        print (place)
+        np.random.shuffle(place)
+        print (place)
+        # with load_data(filepath='./data/img_denoise_pats.npy', rand=False) as data_denoise:
+        #     with load_data(filepath='./data/img_noise_pats.npy', rand=False) as data_noise:
+        #         numBatch = int(data_denoise.shape[0] / 128)
+        #         noise_num = int(data_denoise.shape[0] / 128)
+        #         print ('%d---%d' % (numBatch, noise_num))
+        #         for i in range(0, 10):
+        #             num = random.randint(0,numBatch)
+        #             print (num)
+        #             denoise = data_denoise[num:num + 1, :, :, :]
+        #             noise = data_noise[num:num + 1, :, :, :]
+        #             save_images(os.path.join(args.test_dir, 'denoised%d.jpg' % i), denoise)
+        #             save_images(os.path.join(args.test_dir, 'noise%d.jpg' % i), noise)
     else:
         print('[!]Unknown phase')
         exit(0)
